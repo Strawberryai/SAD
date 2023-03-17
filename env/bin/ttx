@@ -1,0 +1,10 @@
+#!/bin/sh
+'''exec' "/Users/alangarcia/Documents/Ingenieria informatica/3º curso/Sistemas de apoyo a la decision/labs/lab3/env/bin/python3" "$0" "$@"
+' '''
+# -*- coding: utf-8 -*-
+import re
+import sys
+from fontTools.ttx import main
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())
