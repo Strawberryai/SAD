@@ -12,6 +12,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn.neighbors import KNeighborsClassifier
+import sklearn.metrics
 from sklearn.metrics import f1_score
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
@@ -28,6 +29,8 @@ P               = [1, 2]                        # Lista de tipos de distancia ->
 
 DEV_SIZE        = 0.2                           # Indice del tamaño del dev. Por defecto un 20% de la muestra
 RANDOM_STATE    = 42                            # Seed del random split
+PREPROCESADO    = True                          # ¿Preprocesamos los datos de entrada? -> Cat2Num, Missing values y Escalado
+BONANZA         = "weighted f1-score"           # Medición utilizada para determinar el mejor modelo -> weighted f1-score | macro f1-score
 
 #######################################################################################
 #                              ARGUMENTS AND OPTIONS                                  #
@@ -43,6 +46,7 @@ def usage():
     print(f"-k              list of neighbors for the KNN algorithm     DEFAULT: {K}")
     print(f"-o, --output    output file path for the weights            DEFAULT: ./{OUTPUT_PATH}")
     print(f"-p              distance from -> 1: Manhatan | 2: Euclidean DEFAULT: {P}")
+    print(f"Example: entrenar_knn.py -k 1,3 -p 2 -d uniform")
     print("")
 
     # Salimos del programa
@@ -55,17 +59,17 @@ def load_options(options):
 
     for opt,arg in options:
         if opt == "-d":
-            D = arg
+            D = arg.split(",")
         elif opt in ('-h', '--help'):
             usage()
         elif opt in ('-i', '--input'):
             INPUT_FILE = str(arg)
         elif opt == '-k':
-            K = arg
+            K = list(map(lambda n: int(n), arg.split(",")))
         elif opt in ('-o', '--output'):
             OUTPUT_PATH = str(arg)
         elif opt == '-p':
-            P = arg
+            P = list(map(lambda n: int(n), arg.split(",")))
 
 def show_script_options():
     # PRE: ---
@@ -256,6 +260,13 @@ def guardar_modelo(nombre, clf):
     saved_model = pickle.dump(clf, open(file_path,'wb')) 
     print(f'Modelo {nombre} guardado correctamente')
 
+def guardar_report(report):
+    nombre = f"{report['modelo']}.csv"
+    file_path = os.path.join(OUTPUT_PATH, nombre)
+    df = pd.DataFrame(report).transpose()
+    df.to_csv(file_path, index = True)
+    print(f'Report {nombre} guardado correctamente')
+
 def crear_directorio_modelos():
     # PRE: ---
     # POST: Crea el directorio de modelos. Si ya existe, borra su contenido
@@ -309,7 +320,7 @@ def main():
     print("---- Tratamos el TARGET: " + TARGET_NAME)    
     # Creamos la columna __target__ con el atributo a predecir
     target_map = {'0': 0, '1': 1}
-    ml_dataset['__target__'] = ml_dataset['TARGET'].map(str).map(target_map)
+    ml_dataset['__target__'] = ml_dataset[TARGET_NAME].map(str).map(target_map)
     ml_dataset['__target__'] = ml_dataset[TARGET_NAME]
     del ml_dataset[TARGET_NAME]
     
@@ -367,15 +378,17 @@ def main():
     print(trainX.head(5)) # Imprimimos las primeras 5 lineas
     print("DEVX: ")
     print(devX.head(5))
-    
-    f1_best = 0.0
-    best = {'k': -1.0, 'p': -1.0, 'w': 'NaN'}
+
+
+    mejor = {'value': 0.0, 'name': 'empty'}
     for w in D:
         for k in K:
             for p in P:
-                print(f"KNN -> k: {k} p:{p} w:{w}")
+                nombre_modelo = f"KNN-k:{k}-p:{p}-w:{w}"
+                print(nombre_modelo)
                 # weights : {'uniform', 'distance'} or callable, default='uniform'
                 # algorithm : {'auto', 'ball_tree', 'kd_tree', 'brute'}
+                
                 clf = KNeighborsClassifier(n_neighbors=k,
                                     weights=w,
                                     algorithm='auto',
@@ -413,29 +426,38 @@ def main():
                 #     i+=1
                 #     if i>5:
                 #         break
-                f1 = f1_score(devY, predictions, average=None)
-                print(f"F1_score: {f1}")
-                suma = 0.0
-                for i in range(0, len(f1)):
-                    suma += f1[i]
 
-                if suma > f1_best:
-                    f1_best = suma
-                    best = {'k': k, 'p': p, 'w': w}
+                # f1 = f1_score(devY, predictions, average=None)
+                # print(f"F1_score: {f1}")
 
-                # print(classification_report(devY,predictions))
+                report = classification_report(devY,predictions, output_dict=True)
+                report['modelo'] = nombre_modelo
+                print(report)
+
+                # Medimos la bonanza del modelo
+                b = 0.0
+                if BONANZA == "weighted f1-score":
+                    b = report['weighted avg']['f1-score']
+                elif BONANZA == "macro f1-score":
+                    b = report['macro avg']['f1-score']
+
+                if b > mejor['value']:
+                    mejor['value'] = b
+                    mejor['name'] = nombre_modelo
+
                 # print(confusion_matrix(devY, predictions, labels=[1,0]))
-                guardar_modelo(f"KNN-k:{k}-p:{p}-w:{w}.sav", clf)
+                guardar_report(report)
+                guardar_modelo(f"{nombre_modelo}.sav", clf)
+                print()
 
-    print("El mejor F_Score se ha conseguido con:")
-    print(best)
+    print(f"El mejor modelo según <{BONANZA}> es {mejor}")
     
 
 if __name__ == "__main__":    
     try:
         # options: registra los argumentos del usuario
         # remainder: registra los campos adicionales introducidos -> entrenar_knn.py esto_es_remainder
-        options, remainder = getopt(argv[1:], 'd:h:i:k-min:k-max:o:p-min:p-max', ['help', 'input', 'output'])
+        options, remainder = getopt(argv[1:], 'd:h:i:k:o:p:', ['help', 'input', 'output'])
     
     except getopt.GetoptError as err:
         # Error al parsear las opciones del comando
